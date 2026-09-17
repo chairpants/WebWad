@@ -10,35 +10,44 @@ import {isZip, gameFiles} from './zip.js';
 
 const DB = 'rott-web', STORE = 'files';
 
+// Opened from a file:// page, IndexedDB never answers at all -- no success,
+// no error, nothing -- so every call here is raced against a short timer.
+// Caching is a convenience; nothing waits on it.
+const CACHE_TIMEOUT = 1000;
+function withTimeout(p) {
+  return Promise.race([p, new Promise((ok) => setTimeout(() => ok(null), CACHE_TIMEOUT))]);
+}
 function idb() {
-  return new Promise((ok, no) => {
+  return withTimeout(new Promise((ok, no) => {
     const r = indexedDB.open(DB, 1);
     r.onupgradeneeded = () => r.result.createObjectStore(STORE);
     r.onsuccess = () => ok(r.result);
     r.onerror = () => no(r.error);
-  });
+  }));
 }
 
 async function cacheGet(key) {
   try {
     const db = await idb();
-    return await new Promise((ok, no) => {
+    if (!db) return null;
+    return await withTimeout(new Promise((ok, no) => {
       const r = db.transaction(STORE).objectStore(STORE).get(key);
       r.onsuccess = () => ok(r.result || null);
       r.onerror = () => no(r.error);
-    });
+    }));
   } catch (e) { return null; }      // private windows, blocked storage
 }
 
 async function cachePut(key, value) {
   try {
     const db = await idb();
-    await new Promise((ok, no) => {
+    if (!db) return;
+    await withTimeout(new Promise((ok, no) => {
       const t = db.transaction(STORE, 'readwrite');
       t.objectStore(STORE).put(value, key);
       t.oncomplete = ok;
       t.onerror = () => no(t.error);
-    });
+    }));
   } catch (e) { /* caching is a convenience, never a requirement */ }
 }
 

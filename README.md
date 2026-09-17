@@ -6,6 +6,19 @@ them; nothing about a level is baked into this site.
 
     python -m http.server 8000      # any static server will do
     node test/decode.test.mjs       # hold the decoders to the reference
+    node tools/bundle.mjs           # dist/rott.html: one file, opens from disk
+
+## Opened from a file, not a server
+
+A page opened with file:// cannot load ES modules: the browser calls them
+cross-origin and refuses. IndexedDB is worse than refused there -- it never
+answers at all -- so the cache is raced against a timer and skipped when it
+does not come back.
+
+`node tools/bundle.mjs` writes `dist/rott.html`, the same code with the
+modules inlined, which does run from a file. Picking files works; fetching a
+URL works where the host allows it (archive.org does); the browser cache
+does not, so each run reads the files again.
 
 ## Why it is built this way
 
