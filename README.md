@@ -43,6 +43,15 @@ about 45 ms -- so load time is download time and nothing else.
     tools/       reference generator, run against ../ROTT
     test/        Node test holding the JS decoders to that reference
 
+## Loading from a link
+
+A host has to allow cross-origin reads, which is not the same as the file
+being public. Archive.org allows it for a file *inside* a zip --
+`.../ROTT.zip/HUNTBGIN.WAD` -- but not for the zip itself, whose bytes come
+from a CDN host that sends no such header. So name the file, not the archive;
+naming either file fetches the other beside it. A zip still works when it is
+picked from disk.
+
 ## The other project is the authority
 
 `../ROTT` stays exactly as it is, and stays the place where ROTT's own

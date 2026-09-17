@@ -41,17 +41,18 @@
   <fieldset>
     <legend>from a link</legend>
     <input type="url" id="url" spellcheck="false"
-           placeholder="https://archive.org/download/rott_shareware/ROTT.zip"
-           value="https://archive.org/download/rott_shareware/ROTT.zip">
+           placeholder="https://archive.org/download/rott_shareware/ROTT.zip/HUNTBGIN.WAD"
+           value="https://archive.org/download/rott_shareware/ROTT.zip/HUNTBGIN.WAD">
     <p class="files" style="margin:.6rem 0 0">
       <button id="get">Load</button>
-      <span class="hint" style="margin:0">A <code>.zip</code> brings both files in one
-        go, and less of them: 3.7 MB against 6.5 MB loose.</span>
+      <span class="hint" style="margin:0">Name either file and the other comes with
+        it.</span>
     </p>
-    <p class="hint">The host has to allow cross-origin reads. Archive.org does, both
-      for a zip and for a file inside one
-      (<code>&hellip;/ROTT.zip/HUNTBGIN.WAD</code>); a host that does not will fail
-      here and not in your browser's address bar.</p>
+    <p class="hint">The host has to allow cross-origin reads, which is a different
+      thing from the file being public. Archive.org allows it for a file
+      <em>inside</em> a zip (<code>&hellip;/ROTT.zip/HUNTBGIN.WAD</code>) but not for
+      the zip itself, so name the file. A host that refuses will fail here and
+      not in your browser's address bar -- download it and pick it above instead.</p>
   </fieldset>
 
   <div id="status"></div>
@@ -495,6 +496,22 @@ async function fromUrl(url, onProgress = () => {}) {
   return out.buffer;
 }
 
+// Archive.org will serve a file out of a zip with the headers a browser
+// needs, but not the zip itself -- so one URL brings one file, and its
+// companion is the same path with the other extension. Given either, this
+// finds the other: HUNTBGIN.WAD -> HUNTBGIN.RTL and back.
+const PAIRS = {wad: ['RTL', 'RTC', 'RTR'], rtl: ['WAD']};
+function companions(url, have) {
+  const m = /^(.*)\.(wad|rtl|rtc|rtr)$/i.exec(url);
+  if (!m) return [];
+  const want = PAIRS[have] || [];
+  const out = [];
+  for (const ext of want) {
+    out.push(m[1] + '.' + ext, m[1] + '.' + ext.toLowerCase());
+  }
+  return out;
+}
+
 async function cached(names) {
   const bufs = [];
   for (const n of names) {
@@ -580,6 +597,20 @@ $('get').addEventListener('click', async () => {
     if (got.wad) held.wad = got.wad;
     if (got.rtl) held.rtl = got.rtl;
     if (!got.wad && !got.rtl) { say('that file is neither a WAD nor a level file', true); return; }
+    // One URL brings one file. Its companion sits beside it under the same
+    // name, so go and get that too rather than making it a second errand.
+    const missing = held.wad && !held.rtl ? 'wad' : (!held.wad && held.rtl ? 'rtl' : null);
+    if (missing) {
+      for (const alt of companions(url, missing)) {
+        try {
+          say('fetching the other file...');
+          const more = await open([await fromUrl(alt, (p) => say('fetching ' + p))]);
+          if (more.wad) held.wad = more.wad;
+          if (more.rtl) held.rtl = more.rtl;
+          if (more.wad || more.rtl) break;
+        } catch (e) { /* try the next spelling */ }
+      }
+    }
     describe();
     say(status.textContent + `  (${took(t0)})`);
   } catch (err) {

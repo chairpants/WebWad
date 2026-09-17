@@ -41,17 +41,18 @@
   <fieldset>
     <legend>from a link</legend>
     <input type="url" id="url" spellcheck="false"
-           placeholder="https://archive.org/download/rott_shareware/ROTT.zip"
-           value="https://archive.org/download/rott_shareware/ROTT.zip">
+           placeholder="https://archive.org/download/rott_shareware/ROTT.zip/HUNTBGIN.WAD"
+           value="https://archive.org/download/rott_shareware/ROTT.zip/HUNTBGIN.WAD">
     <p class="files" style="margin:.6rem 0 0">
       <button id="get">Load</button>
-      <span class="hint" style="margin:0">A <code>.zip</code> brings both files in one
-        go, and less of them: 3.7 MB against 6.5 MB loose.</span>
+      <span class="hint" style="margin:0">Name either file and the other comes with
+        it.</span>
     </p>
-    <p class="hint">The host has to allow cross-origin reads. Archive.org does, both
-      for a zip and for a file inside one
-      (<code>&hellip;/ROTT.zip/HUNTBGIN.WAD</code>); a host that does not will fail
-      here and not in your browser's address bar.</p>
+    <p class="hint">The host has to allow cross-origin reads, which is a different
+      thing from the file being public. Archive.org allows it for a file
+      <em>inside</em> a zip (<code>&hellip;/ROTT.zip/HUNTBGIN.WAD</code>) but not for
+      the zip itself, so name the file. A host that refuses will fail here and
+      not in your browser's address bar -- download it and pick it above instead.</p>
   </fieldset>
 
   <div id="status"></div>

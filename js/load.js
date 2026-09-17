@@ -121,6 +121,22 @@ export async function fromUrl(url, onProgress = () => {}) {
   return out.buffer;
 }
 
+// Archive.org will serve a file out of a zip with the headers a browser
+// needs, but not the zip itself -- so one URL brings one file, and its
+// companion is the same path with the other extension. Given either, this
+// finds the other: HUNTBGIN.WAD -> HUNTBGIN.RTL and back.
+const PAIRS = {wad: ['RTL', 'RTC', 'RTR'], rtl: ['WAD']};
+export function companions(url, have) {
+  const m = /^(.*)\.(wad|rtl|rtc|rtr)$/i.exec(url);
+  if (!m) return [];
+  const want = PAIRS[have] || [];
+  const out = [];
+  for (const ext of want) {
+    out.push(m[1] + '.' + ext, m[1] + '.' + ext.toLowerCase());
+  }
+  return out;
+}
+
 export async function cached(names) {
   const bufs = [];
   for (const n of names) {

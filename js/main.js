@@ -2,7 +2,7 @@
 // picked. Nothing about the game is hardcoded here -- the level list is
 // whatever the level file says it holds.
 
-import {fromFiles, fromUrl, open, cached} from './load.js';
+import {fromFiles, fromUrl, open, cached, companions} from './load.js';
 
 const $ = (id) => document.getElementById(id);
 const status = $('status');
@@ -73,6 +73,20 @@ $('get').addEventListener('click', async () => {
     if (got.wad) held.wad = got.wad;
     if (got.rtl) held.rtl = got.rtl;
     if (!got.wad && !got.rtl) { say('that file is neither a WAD nor a level file', true); return; }
+    // One URL brings one file. Its companion sits beside it under the same
+    // name, so go and get that too rather than making it a second errand.
+    const missing = held.wad && !held.rtl ? 'wad' : (!held.wad && held.rtl ? 'rtl' : null);
+    if (missing) {
+      for (const alt of companions(url, missing)) {
+        try {
+          say('fetching the other file...');
+          const more = await open([await fromUrl(alt, (p) => say('fetching ' + p))]);
+          if (more.wad) held.wad = more.wad;
+          if (more.rtl) held.rtl = more.rtl;
+          if (more.wad || more.rtl) break;
+        } catch (e) { /* try the next spelling */ }
+      }
+    }
     describe();
     say(status.textContent + `  (${took(t0)})`);
   } catch (err) {
