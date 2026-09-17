@@ -1,0 +1,56 @@
+<!doctype html><meta charset="utf-8"><body>
+<!-- Render one frame of a level and print it as a data URL, so a headless
+     browser can be asked what the page actually draws.
+
+       python -m http.server 8733            # from the project root
+       chrome --headless=new --use-angle=swiftshader --enable-unsafe-swiftshader \
+              --virtual-time-budget=60000 --window-size=1100,760 --dump-dom \
+              http://localhost:8733/test/shot.html 2>shot.log
+
+     Put HUNTBGIN.WAD and HUNTBGIN.RTL in the project root first; they are the
+     player's own files and are not in this repository. The scene summary it
+     logs beside the image is the useful half: a mesh count that disagrees with
+     the same level built in node means the bundle, not the level, is wrong. -->
+<iframe id="f" src="../rott.html" width="1000" height="700"></iframe>
+<script>
+document.getElementById('f').onload = async () => {
+  const w = document.getElementById('f').contentWindow, d = w.document;
+  w.addEventListener('error', e => console.log('ERR ' + e.message + ' @' + e.lineno));
+  const grab = async (n) => new File([await (await fetch('/' + n)).arrayBuffer()], n);
+  const dt = new w.DataTransfer();
+  dt.items.add(await grab('HUNTBGIN.WAD')); dt.items.add(await grab('HUNTBGIN.RTL'));
+  d.getElementById('pick').files = dt.files;
+  d.getElementById('pick').dispatchEvent(new w.Event('change'));
+  const t = setInterval(() => {
+    const lis = d.querySelectorAll('#levels li');
+    if (!lis.length) return;
+    clearInterval(t);
+    lis[0].querySelector('button').click();
+    setTimeout(() => {
+      const c = d.getElementById('canvas'), gl = c.getContext('webgl') || c.getContext('webgl2');
+      // Where to stand. Default is the level's own start.
+      const q = new URLSearchParams(location.search);
+      if (q.has('at')) {
+        const [x, y, z, deg] = q.get('at').split(',').map(Number);
+        w.level.camera.position.set(x, y, z);
+        w.level.yaw = (deg || 0) * Math.PI / 180;
+      }
+      // readPixels has to follow a draw immediately: after compositing the
+      // buffer reads back cleared, which looks like a black level.
+      w.level.step(0.016);
+      const W = c.width, H = c.height, buf = new Uint8Array(W * H * 4);
+      gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d'), img = ctx.createImageData(W, H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const s = ((H - 1 - y) * W + x) * 4, o = (y * W + x) * 4;
+        img.data[o] = buf[s]; img.data[o+1] = buf[s+1]; img.data[o+2] = buf[s+2]; img.data[o+3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+      console.log('SCENE meshes ' + w.level.scene.children.length +
+                  ' storeys ' + w.level.storeys + ' doors ' + w.level.doors.length);
+      console.log('SHOT ' + cv.toDataURL('image/png'));
+    }, 3000);
+  }, 250);
+};
+</script></body>

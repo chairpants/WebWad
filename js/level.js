@@ -138,3 +138,135 @@ export function planesMesh(storeys) {
   };
   return {floor: quad(0, false), ceil: quad(H, true)};
 }
+
+
+// ---- doors ---------------------------------------------------------------
+// Ported from ../ROTT's rott_doors.py, which is SpawnDoor and SetupDoors read
+// closely: which lump a door's face uses, and which way round it hangs.
+
+const DOOR_FACE = {0: 'RAMDOOR1', 1: 'DOOR2', 2: 'TRIDOOR1', 3: 'TRIDOOR1',
+                   8: 'RAMDOOR1', 9: 'DOOR2', 10: 'SDOOR4', 11: 'SDOOR4',
+                   12: 'EDOOR', 13: 'TRIDOOR1', 14: 'SDOOR4'};
+const KEY_NAMES = ['gold', 'silver', 'iron', 'oscuro'];
+
+// rt_door.c's own IsWall/IsDoor, both wider than the drawing ones.
+const wallC = (v) => (v >= 1 && v <= 89) || (v >= 106 && v <= 107) ||
+                     (v >= 224 && v <= 233) || (v >= 242 && v <= 244);
+const doorC = (v) => (v >= 33 && v <= 35) || (v >= 90 && v <= 104) ||
+                     (v >= 154 && v <= 156);
+
+// SpawnDoor's orientation test, on (north, south, west, east).
+function doorVertical(n, s, w, e) {
+  const score = (v) => doorC(v) ? 2 : (wallC(v) ? 1 : 0);
+  const up = score(n), dn = score(s), lt = score(w), rt = score(e);
+  if (up === 1 && dn === 1) return true;
+  if (lt === 1 && rt === 1) return false;
+  if (up > 0 && dn > 0) return true;
+  if (lt > 0 && rt > 0) return false;
+  if (up > 0 || dn > 0) return true;
+  return false;
+}
+
+// Every door in the level: where it is, which way it hangs, what it shows,
+// and whether a key holds it shut.
+export function doors(p0, p1, p2) {
+  const at = (x, y) => (x < 0 || y < 0 || x >= DIM || y >= DIM) ? 0 : p0[y * DIM + x];
+  const out = [];
+  for (let y = 0; y < DIM; y++) {
+    for (let x = 0; x < DIM; x++) {
+      const v = at(x, y);
+      if (v < 90 || v > 104) continue;
+      const face = DOOR_FACE[v - 90];
+      if (!face) continue;                  // 94..97: ROTT rejects these
+      const icon = p1[y * DIM + x];
+      const keyed = icon >= 29 && icon <= 32;
+      out.push({
+        x, y, face,
+        side: keyed ? 'LOCK' + (icon - 28) : 'SIDE8',
+        vertical: doorVertical(at(x, y - 1), at(x, y + 1), at(x - 1, y), at(x + 1, y)),
+        lock: keyed ? KEY_NAMES[icon - 29] : (p2[y * DIM + x] ? 'locked' : null),
+      });
+    }
+  }
+  return out;
+}
+
+// A door's face lump, raw 64x64 like a wall.
+export function doorFace(wad, name) {
+  const b = wad.byName(name);
+  return b && b.length === 4096 ? b : null;
+}
+
+// ---- masked walls --------------------------------------------------------
+// Railings, windows, archways: a tile that is not a wall but is not empty
+// either. Ported from ../ROTT's rott_doors.mask_lumps, which is rt_door.c's
+// SpawnMaskedWall read as a table. Drawn as a stack of one-storey pieces, and
+// unlike the exporter's version without the end caps -- see render.js.
+
+const MULTI_BOTTOM = ['MULTI1', 'MULTI2', 'MULTI3'];
+const MULTI_MID = ['ABOVEM5A', 'ABOVEM5B', 'ABOVEM5C'];
+// tile -> [bottom base, already-broken, blocking, bottom passable]
+const NORMAL = {162: ['MASKED1', 0, 1, 0], 163: ['MASKED1', 1, 1, 0],
+                164: ['MASKED2', 0, 1, 0], 165: ['MASKED2', 1, 1, 0],
+                166: ['MASKED3', 0, 1, 0], 167: ['MASKED3', 1, 1, 0],
+                168: ['MASKED4', 0, 1, 0], 169: ['MASKED4', 1, 0, 1]};
+
+// SpawnMaskedWall computes these off the HMSKSTRT marker by position, not by
+// name -- the shareware WAD even misspells one of them.
+function himask(wad, n) {
+  const i = wad.idx.get('HMSKSTRT');
+  return i === undefined ? null : wad.nameAt(i + 1 + n);
+}
+
+export function maskLumps(wad, tile) {
+  const M = (bottom, middle, above, blocking) =>
+    ({bottom, middle, above, blocking: !!blocking});
+  if (tile === 157 || tile === 175)
+    return M(himask(wad, 0), himask(wad, 1), himask(wad, tile === 175 ? 3 : 2), 1);
+  if (tile >= 158 && tile <= 160)
+    return M(MULTI_BOTTOM[tile - 158], MULTI_MID[tile - 158], 'ABOVEM5', 1);
+  if (tile >= 176 && tile <= 178)
+    return M(MULTI_BOTTOM[tile - 176] + 'A', MULTI_MID[tile - 176], 'ABOVEM5', 0);
+  if (tile in NORMAL) {
+    let [base, broken, blocking] = NORMAL[tile];
+    // MASKED1 and MASKED3 are not in the shareware WAD though thirty tiles
+    // use them; rt_door.c already substitutes the 4-series for the other
+    // pieces, so the bottom gets the same treatment or the wall is an
+    // invisible block. See ../ROTT for the whole argument.
+    if (!wad.idx.has(base)) base = 'MASKED2';
+    return M(base + (broken ? 'A' : ''), 'ABOVEM4A', 'ABOVEM4', blocking);
+  }
+  if (tile === 172) return M('EXITARCH', 'ABOVEM4A', 'ABOVEM4', 0);
+  if (tile === 173) return M('EXITARCA', 'ABOVEM4A', 'ABOVEM4', 0);
+  if (tile === 174) return M('ENTRARCH', 'ABOVEM4A', 'ABOVEM4', 1);
+  if (tile === 179) return M('RAILING', null, null, 0);
+  if (tile === 170) return M('DOGMASK', 'ABOVEM4A', 'ABOVEM4', 0);
+  if (tile === 171) return M('PEEPMASK', 'ABOVEM4A', 'ABOVEM4', 1);
+  return null;               // 161: ROTT's own unused "pillar" case
+}
+
+// Every masked wall in the level, as a list of one-storey pieces. A piece
+// wears its art on each side facing open space -- a side shut against a wall,
+// or against another tile of the same value, is art nobody can see and art
+// that would z-fight with its neighbour's.
+export function maskWalls(wad, p0, storeys) {
+  const at = (x, y) => (x < 0 || y < 0 || x >= DIM || y >= DIM) ? 0 : p0[y * DIM + x];
+  const out = [];
+  for (let y = 0; y < DIM; y++) {
+    for (let x = 0; x < DIM; x++) {
+      const v = at(x, y);
+      if (!isMask(v)) continue;
+      const r = maskLumps(wad, v);
+      if (!r) continue;
+      const shut = (nx, ny) => { const n = at(nx, ny); return isWall(n) || n === v; };
+      const faces = [!shut(x, y - 1), !shut(x, y + 1), !shut(x - 1, y), !shut(x + 1, y)];
+      const pieces = [];
+      if (r.bottom) pieces.push([r.bottom, 0]);
+      if (r.middle) for (let s = 1; s < storeys - 1; s++) pieces.push([r.middle, s]);
+      if (r.above && storeys >= 2) pieces.push([r.above, storeys - 1]);
+      for (const [lump, storey] of pieces)
+        out.push({x, y, lump, storey, faces, blocking: r.blocking});
+    }
+  }
+  return out;
+}

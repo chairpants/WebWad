@@ -67,7 +67,8 @@
 <div id="view" hidden>
   <canvas id="canvas"></canvas>
   <div id="hud"><span id="levelname"></span> <span id="pos"></span>
-    <span class="dim">click to look &middot; WASD &middot; shift to run &middot; esc to leave</span></div>
+    <span class="dim">click to look &middot; WASD &middot; shift to run &middot; E opens
+      &middot; esc to leave</span></div>
 </div>
 <script>/**
  * @license
@@ -547,7 +548,139 @@ function planesMesh(storeys) {
   return {floor: quad(0, false), ceil: quad(H, true)};
 }
 
-return {storeysOf, levelInfo, spawnOf, wallLump, flat, solidMap, walls, planesMesh, DIM, isDoor, isWall, isMask, isArea, blocks};
+
+// ---- doors ---------------------------------------------------------------
+// Ported from ../ROTT's rott_doors.py, which is SpawnDoor and SetupDoors read
+// closely: which lump a door's face uses, and which way round it hangs.
+
+const DOOR_FACE = {0: 'RAMDOOR1', 1: 'DOOR2', 2: 'TRIDOOR1', 3: 'TRIDOOR1',
+                   8: 'RAMDOOR1', 9: 'DOOR2', 10: 'SDOOR4', 11: 'SDOOR4',
+                   12: 'EDOOR', 13: 'TRIDOOR1', 14: 'SDOOR4'};
+const KEY_NAMES = ['gold', 'silver', 'iron', 'oscuro'];
+
+// rt_door.c's own IsWall/IsDoor, both wider than the drawing ones.
+const wallC = (v) => (v >= 1 && v <= 89) || (v >= 106 && v <= 107) ||
+                     (v >= 224 && v <= 233) || (v >= 242 && v <= 244);
+const doorC = (v) => (v >= 33 && v <= 35) || (v >= 90 && v <= 104) ||
+                     (v >= 154 && v <= 156);
+
+// SpawnDoor's orientation test, on (north, south, west, east).
+function doorVertical(n, s, w, e) {
+  const score = (v) => doorC(v) ? 2 : (wallC(v) ? 1 : 0);
+  const up = score(n), dn = score(s), lt = score(w), rt = score(e);
+  if (up === 1 && dn === 1) return true;
+  if (lt === 1 && rt === 1) return false;
+  if (up > 0 && dn > 0) return true;
+  if (lt > 0 && rt > 0) return false;
+  if (up > 0 || dn > 0) return true;
+  return false;
+}
+
+// Every door in the level: where it is, which way it hangs, what it shows,
+// and whether a key holds it shut.
+function doors(p0, p1, p2) {
+  const at = (x, y) => (x < 0 || y < 0 || x >= DIM || y >= DIM) ? 0 : p0[y * DIM + x];
+  const out = [];
+  for (let y = 0; y < DIM; y++) {
+    for (let x = 0; x < DIM; x++) {
+      const v = at(x, y);
+      if (v < 90 || v > 104) continue;
+      const face = DOOR_FACE[v - 90];
+      if (!face) continue;                  // 94..97: ROTT rejects these
+      const icon = p1[y * DIM + x];
+      const keyed = icon >= 29 && icon <= 32;
+      out.push({
+        x, y, face,
+        side: keyed ? 'LOCK' + (icon - 28) : 'SIDE8',
+        vertical: doorVertical(at(x, y - 1), at(x, y + 1), at(x - 1, y), at(x + 1, y)),
+        lock: keyed ? KEY_NAMES[icon - 29] : (p2[y * DIM + x] ? 'locked' : null),
+      });
+    }
+  }
+  return out;
+}
+
+// A door's face lump, raw 64x64 like a wall.
+function doorFace(wad, name) {
+  const b = wad.byName(name);
+  return b && b.length === 4096 ? b : null;
+}
+
+// ---- masked walls --------------------------------------------------------
+// Railings, windows, archways: a tile that is not a wall but is not empty
+// either. Ported from ../ROTT's rott_doors.mask_lumps, which is rt_door.c's
+// SpawnMaskedWall read as a table. Drawn as a stack of one-storey pieces, and
+// unlike the exporter's version without the end caps -- see render.js.
+
+const MULTI_BOTTOM = ['MULTI1', 'MULTI2', 'MULTI3'];
+const MULTI_MID = ['ABOVEM5A', 'ABOVEM5B', 'ABOVEM5C'];
+// tile -> [bottom base, already-broken, blocking, bottom passable]
+const NORMAL = {162: ['MASKED1', 0, 1, 0], 163: ['MASKED1', 1, 1, 0],
+                164: ['MASKED2', 0, 1, 0], 165: ['MASKED2', 1, 1, 0],
+                166: ['MASKED3', 0, 1, 0], 167: ['MASKED3', 1, 1, 0],
+                168: ['MASKED4', 0, 1, 0], 169: ['MASKED4', 1, 0, 1]};
+
+// SpawnMaskedWall computes these off the HMSKSTRT marker by position, not by
+// name -- the shareware WAD even misspells one of them.
+function himask(wad, n) {
+  const i = wad.idx.get('HMSKSTRT');
+  return i === undefined ? null : wad.nameAt(i + 1 + n);
+}
+
+function maskLumps(wad, tile) {
+  const M = (bottom, middle, above, blocking) =>
+    ({bottom, middle, above, blocking: !!blocking});
+  if (tile === 157 || tile === 175)
+    return M(himask(wad, 0), himask(wad, 1), himask(wad, tile === 175 ? 3 : 2), 1);
+  if (tile >= 158 && tile <= 160)
+    return M(MULTI_BOTTOM[tile - 158], MULTI_MID[tile - 158], 'ABOVEM5', 1);
+  if (tile >= 176 && tile <= 178)
+    return M(MULTI_BOTTOM[tile - 176] + 'A', MULTI_MID[tile - 176], 'ABOVEM5', 0);
+  if (tile in NORMAL) {
+    let [base, broken, blocking] = NORMAL[tile];
+    // MASKED1 and MASKED3 are not in the shareware WAD though thirty tiles
+    // use them; rt_door.c already substitutes the 4-series for the other
+    // pieces, so the bottom gets the same treatment or the wall is an
+    // invisible block. See ../ROTT for the whole argument.
+    if (!wad.idx.has(base)) base = 'MASKED2';
+    return M(base + (broken ? 'A' : ''), 'ABOVEM4A', 'ABOVEM4', blocking);
+  }
+  if (tile === 172) return M('EXITARCH', 'ABOVEM4A', 'ABOVEM4', 0);
+  if (tile === 173) return M('EXITARCA', 'ABOVEM4A', 'ABOVEM4', 0);
+  if (tile === 174) return M('ENTRARCH', 'ABOVEM4A', 'ABOVEM4', 1);
+  if (tile === 179) return M('RAILING', null, null, 0);
+  if (tile === 170) return M('DOGMASK', 'ABOVEM4A', 'ABOVEM4', 0);
+  if (tile === 171) return M('PEEPMASK', 'ABOVEM4A', 'ABOVEM4', 1);
+  return null;               // 161: ROTT's own unused "pillar" case
+}
+
+// Every masked wall in the level, as a list of one-storey pieces. A piece
+// wears its art on each side facing open space -- a side shut against a wall,
+// or against another tile of the same value, is art nobody can see and art
+// that would z-fight with its neighbour's.
+function maskWalls(wad, p0, storeys) {
+  const at = (x, y) => (x < 0 || y < 0 || x >= DIM || y >= DIM) ? 0 : p0[y * DIM + x];
+  const out = [];
+  for (let y = 0; y < DIM; y++) {
+    for (let x = 0; x < DIM; x++) {
+      const v = at(x, y);
+      if (!isMask(v)) continue;
+      const r = maskLumps(wad, v);
+      if (!r) continue;
+      const shut = (nx, ny) => { const n = at(nx, ny); return isWall(n) || n === v; };
+      const faces = [!shut(x, y - 1), !shut(x, y + 1), !shut(x - 1, y), !shut(x + 1, y)];
+      const pieces = [];
+      if (r.bottom) pieces.push([r.bottom, 0]);
+      if (r.middle) for (let s = 1; s < storeys - 1; s++) pieces.push([r.middle, s]);
+      if (r.above && storeys >= 2) pieces.push([r.above, storeys - 1]);
+      for (const [lump, storey] of pieces)
+        out.push({x, y, lump, storey, faces, blocking: r.blocking});
+    }
+  }
+  return out;
+}
+
+return {storeysOf, levelInfo, spawnOf, wallLump, flat, solidMap, walls, planesMesh, doors, doorFace, maskLumps, maskWalls, DIM, TILE, isDoor, isWall, isMask, isArea, blocks};
 })();
 
 // ---- js/render.js --------------------------------------------------
@@ -558,20 +691,24 @@ MODULES['js/render.js'] = (function () {
 // once. Walls are batched by tile so the whole level is a handful of draw
 // calls.
 
-const {DIM, TILE, walls, planesMesh, wallLump, flat, solidMap, storeysOf, levelInfo, spawnOf} = MODULES['js/level.js'];
+const {DIM, TILE, walls, planesMesh, wallLump, flat, solidMap, storeysOf, levelInfo, spawnOf, doors, doorFace, maskWalls} = MODULES['js/level.js'];
+const {patchIndexed} = MODULES['js/wad.js'];
 
 const RADIUS = 22;          // the player's half-width, as the exporter has it
 const EYE = 39;             // z + playerheight in ROTT's own terms
+const DOOR_SPEED = 35 / 16; // 1<<12 of 0x10000 a tic: open in 16 tics
+const OPENTICS = 165 / 35;  // how long it stands open before closing again
 
 // Column-major palette indices -> an RGBA texture. ROTT stores its art in
 // columns; the canvas wants rows.
-function texture(THREE, bytes, w, h, pal, colMajor = true) {
+function texture(THREE, bytes, w, h, pal, colMajor = true, mask = null) {
   const rgba = new Uint8Array(w * h * 4);
   for (let x = 0; x < w; x++) {
     for (let y = 0; y < h; y++) {
       const i = colMajor ? x * h + y : y * w + x;
       const p = bytes[i] * 3, o = (y * w + x) * 4;
-      rgba[o] = pal[p]; rgba[o + 1] = pal[p + 1]; rgba[o + 2] = pal[p + 2]; rgba[o + 3] = 255;
+      rgba[o] = pal[p]; rgba[o + 1] = pal[p + 1]; rgba[o + 2] = pal[p + 2];
+      rgba[o + 3] = mask ? mask[i] : 255;
     }
   }
   const t = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
@@ -587,6 +724,14 @@ function texture(THREE, bytes, w, h, pal, colMajor = true) {
 // seen from below are not worth the winding rules they would cost.
 function material(THREE, opts) {
   return new THREE.MeshBasicMaterial(Object.assign({side: THREE.DoubleSide}, opts));
+}
+
+const UVBOX = [[0, 0], [1, 0], [1, 1], [0, 1]];
+function quad(g, pts, uv) {
+  for (const i of [0, 1, 2, 0, 2, 3]) {
+    g.pos.push(pts[i][0], pts[i][1], pts[i][2]);
+    g.uv.push(uv[i][0], uv[i][1]);
+  }
 }
 
 function mesh(THREE, geo, mat) {
@@ -633,6 +778,81 @@ class Level {
       this.scene.background = new THREE.Color(0x20242c);
     }
 
+    // Doors: a leaf one storey tall that slides into the jamb, with ordinary
+    // wall above it. A full-height leaf looks wrong in a tall level and is not
+    // what ROTT draws -- see ../ROTT's addDoor, which this follows.
+    this.doors = [];
+    const H = this.storeys * TILE;
+    const aboveLump = doorFace(wad, 'ABOVEW3');
+    const aboveMat = aboveLump
+      ? material(THREE, {map: texture(THREE, aboveLump, 64, 64, pal)})
+      : material(THREE, {color: 0x555a66});
+    for (const d of doors(p0, p1, planes[2])) {
+      const tex = doorFace(wad, d.face);
+      const mat = tex ? material(THREE, {map: texture(THREE, tex, 64, 64, pal)})
+                      : material(THREE, {color: 0x6b6f7a});
+      const cx = d.x * TILE + TILE / 2, cz = d.y * TILE + TILE / 2;
+
+      // The leaf, built about the origin so it can slide by moving the mesh.
+      const g = {pos: [], uv: []};
+      quad(g, d.vertical ? [[0, 0, -32], [0, 0, 32], [0, TILE, 32], [0, TILE, -32]]
+                         : [[-32, 0, 0], [32, 0, 0], [32, TILE, 0], [-32, TILE, 0]],
+           UVBOX);
+      const m = mesh(THREE, g, mat);
+      m.position.set(cx, 0, cz);
+      this.scene.add(m);
+
+      // Everything above it fills the tile front to back, so looking up inside
+      // a doorway does not show daylight through the wall, and gets a soffit.
+      const y0 = TILE - 0.5, rest = H - y0;
+      if (rest > 0) {
+        const uvv = [[0, 0], [1, 0], [1, rest / 64], [0, rest / 64]];
+        const a = {pos: [], uv: []};
+        for (const s of [-32, 32])
+          quad(a, d.vertical ? [[s, y0, -32], [s, y0, 32], [s, H, 32], [s, H, -32]]
+                             : [[-32, y0, s], [32, y0, s], [32, H, s], [-32, H, s]],
+               uvv);
+        quad(a, [[-32, y0, -32], [32, y0, -32], [32, y0, 32], [-32, y0, 32]], UVBOX);
+        const am = mesh(THREE, a, aboveMat);
+        am.position.set(cx, 0, cz);
+        this.scene.add(am);
+      }
+
+      this.doors.push({...d, m, cx, cz, open: 0, target: 0, hold: 0,
+                       ti: d.y * DIM + d.x});
+    }
+
+    // Masked walls: railings, windows, archways. One batch per lump, and the
+    // art's own holes are its shape -- alphaTest rather than a cut mesh.
+    // ponytail: no end caps, so a railing seen from directly above is a line.
+    // Add them when looking down on one looks wrong.
+    const byLump = new Map();
+    for (const w of maskWalls(wad, p0, this.storeys)) {
+      if (!byLump.has(w.lump)) byLump.set(w.lump, {pos: [], uv: []});
+      const g = byLump.get(w.lump);
+      const cx = w.x * TILE + 32, cz = w.y * TILE + 32;
+      const y0 = w.storey * TILE, y1 = y0 + TILE;
+      const [n, s, ww, e] = w.faces;
+      if (n) quad(g, [[cx - 32, y0, cz - 32], [cx + 32, y0, cz - 32],
+                      [cx + 32, y1, cz - 32], [cx - 32, y1, cz - 32]], UVBOX);
+      if (s) quad(g, [[cx + 32, y0, cz + 32], [cx - 32, y0, cz + 32],
+                      [cx - 32, y1, cz + 32], [cx + 32, y1, cz + 32]], UVBOX);
+      if (ww) quad(g, [[cx - 32, y0, cz + 32], [cx - 32, y0, cz - 32],
+                       [cx - 32, y1, cz - 32], [cx - 32, y1, cz + 32]], UVBOX);
+      if (e) quad(g, [[cx + 32, y0, cz - 32], [cx + 32, y0, cz + 32],
+                      [cx + 32, y1, cz + 32], [cx + 32, y1, cz - 32]], UVBOX);
+      if (w.blocking) this.solid[w.y * DIM + w.x] = 1;
+    }
+    for (const [lump, geo] of byLump) {
+      if (!geo.pos.length) continue;
+      const p = patchIndexed(wad, lump);
+      const mat = p
+        ? material(THREE, {map: texture(THREE, p.idx, p.w, p.h, pal, false, p.mask),
+                           transparent: true, alphaTest: 0.1})
+        : material(THREE, {color: 0x6b6f7a});
+      this.scene.add(mesh(THREE, geo, mat));
+    }
+
     const s = spawnOf(p1);
     this.camera.position.set(s.x, EYE, s.z);
     this.yaw = s.deg * Math.PI / 180;
@@ -649,6 +869,45 @@ class Level {
     this.camera.updateProjectionMatrix();
   }
 
+  // A door is solid until it is most of the way open.
+  doorAt(tx, tz) {
+    for (const d of this.doors) if (d.x === tx && d.y === tz) return d;
+    return null;
+  }
+
+  // Doors open on use, stand open for OPENTICS, then close when the way is
+  // clear -- ROTT never shuts one on anybody.
+  stepDoors(dt) {
+    const p = this.camera.position;
+    for (const d of this.doors) {
+      if (d.open === d.target) {
+        if (d.open === 1 && (d.hold += dt) >= OPENTICS &&
+            !(Math.abs(p.x - d.cx) < 48 && Math.abs(p.z - d.cz) < 48)) d.target = 0;
+        continue;
+      }
+      d.open = Math.max(0, Math.min(1, d.open + Math.sign(d.target - d.open) * dt * DOOR_SPEED));
+      d.hold = 0;
+      const slide = d.open * TILE;
+      if (d.vertical) d.m.position.z = d.cz + slide;
+      else d.m.position.x = d.cx + slide;
+    }
+  }
+
+  // E on the nearest door within reach.
+  use() {
+    const p = this.camera.position;
+    let best = null, bd = 96 * 96;
+    for (const d of this.doors) {
+      const q = (p.x - d.cx) ** 2 + (p.z - d.cz) ** 2;
+      if (q < bd) { bd = q; best = d; }
+    }
+    if (!best) return null;
+    if (best.lock) return `locked: ${best.lock} key`;
+    best.target = best.target ? 0 : 1;
+    best.hold = 0;
+    return null;
+  }
+
   // The four corners of the player's box, as the exporter tests them.
   blocked(x, z) {
     for (const dx of [-RADIUS, RADIUS]) {
@@ -656,6 +915,8 @@ class Level {
         const tx = (x + dx) >> 6, tz = (z + dz) >> 6;
         if (tx < 0 || tz < 0 || tx >= DIM || tz >= DIM) return true;
         if (this.solid[tz * DIM + tx]) return true;
+        const d = this.doorAt(tx, tz);
+        if (d && d.open < 0.75) return true;
       }
     }
     return false;
@@ -686,6 +947,7 @@ class Level {
     const nx = p.x + this.vx * dt, nz = p.z + this.vz * dt;
     if (!this.blocked(nx, p.z)) p.x = nx; else this.vx = 0;
     if (!this.blocked(p.x, nz)) p.z = nz; else this.vz = 0;
+    this.stepDoors(dt);
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     this.renderer.render(this.scene, this.camera);
   }
@@ -947,6 +1209,11 @@ function run() {
   addEventListener('keydown', (e) => {
     if (!level) return;
     if (e.code === 'Escape') { leave(); return; }
+    if (e.code === 'KeyE' || e.code === 'Space') {
+      const msg = level.use();
+      document.getElementById('pos').textContent = msg || level.where();
+      return;
+    }
     level.keys[e.code] = true;
   });
   addEventListener('keyup', (e) => level && (level.keys[e.code] = false));

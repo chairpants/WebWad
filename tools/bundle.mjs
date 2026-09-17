@@ -25,10 +25,36 @@ function exportedNames(src) {
   const names = [];
   for (const m of src.matchAll(/^\s*export\s+(?:async\s+)?(?:function|class)\s+([A-Za-z_$][\w$]*)/gm))
     names.push(m[1]);
-  for (const m of src.matchAll(/^\s*export\s+(?:const|let|var)\s+([^=;]+?)\s*=/gm))
-    for (const part of m[1].split(','))
-      names.push(part.trim().split(/\s/)[0]);
+  // A declaration can name several things: `export const DIM = 128, TILE = 64`.
+  // Taking only the first left it out of the module's exports, which made it
+  // undefined at every use site -- and undefined arithmetic is NaN, not an
+  // error, so the page built a whole level's geometry at NaN and drew nothing
+  // where the missing name was used. Split the line's declarators instead.
+  for (const m of src.matchAll(/^\s*export\s+(?:const|let|var)\s+(.*)$/gm)) {
+    let depth = 0, start = 0;
+    const line = m[1] + ',';
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if ('([{'.includes(c)) depth++;
+      else if (')]}'.includes(c)) depth--;
+      else if (c === ',' && depth === 0) {
+        const id = line.slice(start, i).trim().match(/^[A-Za-z_$][\w$]*/);
+        if (id) names.push(id[0]);
+        start = i + 1;
+      }
+    }
+  }
   return [...new Set(names)].filter(Boolean);
+}
+
+// What each module asks of the others, so a name that is used but never
+// exported is caught here rather than becoming an undefined at runtime.
+function importedNames(src) {
+  const out = [];
+  for (const m of src.matchAll(/^[ \t]*import\s*\{([\s\S]*?)\}\s*from\s*'([^']+)';/gm))
+    out.push([m[2].replace(/^\.\//, 'js/'),
+              m[1].split(/\s*,\s*/).map(s => s.trim()).filter(Boolean)]);
+  return out;
 }
 
 // `import {a, b} from './x.js';`, however many lines it takes.
@@ -48,8 +74,18 @@ function wrap(file, src) {
          `return {${names.join(', ')}};\n})();`;
 }
 
+const SRC = new Map(ORDER.map(f => [f, readFileSync(join(root, f), 'utf8')]));
+const EXPORTS = new Map([...SRC].map(([f, s]) => [f, new Set(exportedNames(s))]));
+for (const [f, s] of SRC)
+  for (const [from, names] of importedNames(s))
+    for (const n of names)
+      if (!EXPORTS.has(from) || !EXPORTS.get(from).has(n)) {
+        console.error(`${f} imports ${n} from ${from}, which does not export it`);
+        process.exit(1);
+      }
+
 const js = 'const MODULES = {};\n\n' +
-           ORDER.map(f => wrap(f, readFileSync(join(root, f), 'utf8'))).join('\n\n');
+           ORDER.map(f => wrap(f, SRC.get(f))).join('\n\n');
 
 // Does it actually parse? new Function compiles without running.
 try {

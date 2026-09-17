@@ -91,6 +91,11 @@ function run() {
   addEventListener('keydown', (e) => {
     if (!level) return;
     if (e.code === 'Escape') { leave(); return; }
+    if (e.code === 'KeyE' || e.code === 'Space') {
+      const msg = level.use();
+      document.getElementById('pos').textContent = msg || level.where();
+      return;
+    }
     level.keys[e.code] = true;
   });
   addEventListener('keyup', (e) => level && (level.keys[e.code] = false));
