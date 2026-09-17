@@ -58,3 +58,15 @@
   <div id="levels"></div>
 </main>
 <script type="module" src="js/main.js"></script>
+<script>
+// A page opened with file:// cannot load the module above -- the browser
+// refuses it as cross-origin -- and every button would sit there doing
+// nothing. Say so, and point at the single-file build, which does work.
+if (location.protocol === 'file:') {
+  var s = document.getElementById('status');
+  s.className = 'bad';
+  s.innerHTML = 'Opened from a file, so the browser has blocked this page's code ' +
+    '(modules are not allowed from file://). Open <code>rott.html</code> beside ' +
+    'this file instead, or serve this folder over http.';
+}
+</script>

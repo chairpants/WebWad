@@ -1,0 +1,600 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ROTT web</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#15161a;color:#d9dbe0;
+      font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+ main{max-width:52rem;margin:0 auto;padding:2rem 1rem}
+ h1{font-size:1.1rem;letter-spacing:.2em;text-transform:uppercase;color:#c85a3a;margin:0 0 .25rem}
+ p.sub{margin:0 0 2rem;color:#8b8f99}
+ fieldset{border:1px solid #2c2f37;border-radius:6px;padding:1rem;margin:0 0 1rem}
+ legend{padding:0 .4rem;color:#8b8f99;text-transform:uppercase;letter-spacing:.14em;font-size:11px}
+ input[type=url]{width:100%;box-sizing:border-box;background:#101116;color:inherit;
+                 border:1px solid #2c2f37;border-radius:4px;padding:.5rem;font:inherit}
+ button{background:#22242b;color:inherit;border:1px solid #3a3d47;border-radius:4px;
+        padding:.45rem .9rem;font:inherit;cursor:pointer}
+ button:hover{background:#2b2e36}
+ #status{margin:1rem 0;color:#8b8f99;min-height:1.5em}
+ #status.bad{color:#c85a3a}
+ ol{padding-left:1.4rem;margin:.5rem 0 0}
+ li{padding:.15rem 0}
+ li button{margin-left:.5rem;padding:.1rem .5rem;font-size:12px}
+ .files{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+ .hint{color:#6f737d;font-size:12px;margin-top:.6rem}
+</style>
+<main>
+  <h1>Rise of the Triad</h1>
+  <p class="sub">in a browser, from your own game files</p>
+
+  <fieldset>
+    <legend>from your computer</legend>
+    <div class="files">
+      <input type="file" id="pick" multiple accept=".wad,.rtl,.rtc,.rtr,.zip,.WAD,.RTL,.ZIP">
+    </div>
+    <p class="hint">Pick the shareware <code>.zip</code>, or both files out of it:
+      the art (<code>.WAD</code>) and the levels (<code>.RTL</code>). Nothing is
+      uploaded anywhere; they stay in this browser.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>from a link</legend>
+    <input type="url" id="url" spellcheck="false"
+           placeholder="https://archive.org/download/rott_shareware/ROTT.zip"
+           value="https://archive.org/download/rott_shareware/ROTT.zip">
+    <p class="files" style="margin:.6rem 0 0">
+      <button id="get">Load</button>
+      <span class="hint" style="margin:0">A <code>.zip</code> brings both files in one
+        go, and less of them: 3.7 MB against 6.5 MB loose.</span>
+    </p>
+    <p class="hint">The host has to allow cross-origin reads. Archive.org does, both
+      for a zip and for a file inside one
+      (<code>&hellip;/ROTT.zip/HUNTBGIN.WAD</code>); a host that does not will fail
+      here and not in your browser's address bar.</p>
+  </fieldset>
+
+  <div id="status"></div>
+  <div id="levels"></div>
+</main>
+<script>
+(function () {
+// ---- js/wad.js ---------------------------------------------------------
+// Reading a ROTT WAD in the browser.
+//
+// Ported from the exporter in ../ROTT (rott.py's Wad class and rott_gfx.py's
+// patch_indexed), which is the reference implementation and stays the place
+// where the game's own tables and their citations live. Everything here is
+// mechanical: lump directory, palette, and the column-major masked shapes.
+
+const TRANSLUCENT = -1;   // a transpatch post that remaps what is behind it
+const TRANS_MARK = 254;
+
+class Wad {
+  // `buf` is an ArrayBuffer: a file the player picked, or one fetched.
+  constructor(buf) {
+    this.bytes = new Uint8Array(buf);
+    this.view = new DataView(buf);
+    const sig = String.fromCharCode(...this.bytes.subarray(0, 4));
+    if (sig !== 'IWAD' && sig !== 'PWAD') throw new Error('not a WAD: ' + sig);
+    const n = this.view.getUint32(4, true), off = this.view.getUint32(8, true);
+    this.lumps = [];
+    this.idx = new Map();
+    for (let i = 0; i < n; i++) {
+      const p = off + i * 16;
+      const o = this.view.getUint32(p, true), sz = this.view.getUint32(p + 4, true);
+      let name = '';
+      for (let k = 0; k < 8; k++) {
+        const c = this.bytes[p + 8 + k];
+        if (!c) break;
+        name += String.fromCharCode(c);
+      }
+      this.lumps.push({name, o, sz});
+      if (!this.idx.has(name)) this.idx.set(name, i);
+    }
+    // ROTT's PAL is already 8-bit (values run to 252) -- do NOT rescale it as
+    // a 6-bit VGA palette, that blows every texture out to white.
+    this.pal = this.byName('PAL');
+  }
+
+  byName(name) {
+    const i = this.idx.get(name);
+    return i === undefined ? null : this.lumpAt(i);
+  }
+
+  lumpAt(i) {
+    if (i < 0 || i >= this.lumps.length) return null;
+    const l = this.lumps[i];
+    return this.bytes.subarray(l.o, l.o + l.sz);
+  }
+
+  // The name at an index, for the sprite tables, which address art by its
+  // position in the shape section rather than by name.
+  nameAt(i) {
+    return (i >= 0 && i < this.lumps.length) ? this.lumps[i].name : null;
+  }
+}
+
+// Which table entry column 0 lives at. Most lumps store exactly `width`
+// offsets and index them directly; a minority store width + 1 with a filler
+// entry first. Both are detectable: the real column 0 always begins
+// immediately after the table.
+function colBase(dv, at, width) {
+  const c0 = dv.getUint16(at + 10, true), c1 = dv.getUint16(at + 12, true);
+  if (c0 === 10 + width * 2) return 0;
+  if (c1 === 10 + (width + 1) * 2) return 1;
+  return 0;
+}
+
+// `height` palette indices, null where clear, TRANSLUCENT where see-through.
+function decodeColumn(b, start, height, trans) {
+  const n = b.length, px = new Array(height).fill(null);
+  let i = start;
+  if (!(i >= 0 && i < n)) return px;
+  while (i < n) {
+    const topdelta = b[i];
+    if (topdelta === 0xFF) break;
+    if (i + 1 >= n) break;
+    let length = b[i + 1];
+    i += 2;
+    // A post in a transpatch whose first data byte is 254 carries no pixels:
+    // ScaleTransparentPost remaps what is already on screen for `length` rows
+    // and the post is one byte long.
+    if (trans && i < n && b[i] === TRANS_MARK) {
+      for (let r = 0; r < length; r++) {
+        const row = topdelta + r;
+        if (row >= 0 && row < height) px[row] = TRANSLUCENT;
+      }
+      i += 1;
+      continue;
+    }
+    if (length > n - i) length = n - i;   // truncated tail: clip, don't crash
+    for (let r = 0; r < length; r++) {
+      const row = topdelta + r;
+      if (row >= 0 && row < height) px[row] = b[i + r];
+    }
+    i += length;
+  }
+  return px;
+}
+
+// Decode a lump to {w, h, orig, top, translevel, idx, mask}: raw palette
+// indices plus a 0/128/255 opacity byte per pixel, both row-major. 128 is a
+// translucent run. Returns null for anything that isn't a valid patch.
+function patchIndexed(wad, lumpName) {
+  const data = wad.byName(lumpName);
+  if (!data || data.length < 10) return null;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const origsize = dv.getInt16(0, true);
+  const width = dv.getInt16(2, true), height = dv.getInt16(4, true);
+  const topoffset = dv.getInt16(8, true);
+  if (width <= 0 || height <= 0 || width > 320 || height > 2000) return null;
+  const base = colBase(dv, 0, width);
+  const ncols = width + base;
+  if (10 + ncols * 2 > data.length) return null;
+  const colofs = [];
+  for (let c = 0; c < ncols; c++) colofs.push(dv.getUint16(10 + c * 2, true));
+  // base == 1 means the column table starts at 12, which is a transpatch: six
+  // shorts of header, the sixth being translevel. That is the set ROTT hands
+  // to ScaleTransparentPost, so it is the set whose 254 runs mean "see
+  // through me" rather than "palette index 254".
+  const trans = base === 1;
+  const translevel = trans ? dv.getInt16(10, true) : null;
+
+  const idx = new Uint8Array(width * height), mask = new Uint8Array(width * height);
+  for (let x = 0; x < width; x++) {
+    const start = colofs[x + base];
+    if (start <= 0 || start >= data.length) continue;
+    const col = decodeColumn(data, start, height, trans);
+    for (let y = 0; y < height; y++) {
+      const v = col[y];
+      if (v === null) continue;
+      const o = y * width + x;
+      if (v === TRANSLUCENT) { mask[o] = 128; continue; }
+      idx[o] = v;
+      mask[o] = 255;
+    }
+  }
+  // origsize is the reference box the art was drawn for: world size is
+  // pixels * 64 / origsize, so a 128-origsize actor is half its pixel size.
+  return {w: width, h: height, orig: origsize || 64, top: topoffset,
+          translevel, idx, mask};
+}
+
+// A raw 64x64 wall texture, 128x128 flat or 256x200 sky half: column-major
+// palette indices with no header at all.
+function rawLump(wad, name, expect) {
+  const b = wad.byName(name);
+  return (b && (expect === undefined || b.length === expect)) ? b : null;
+}
+
+
+// ---- js/rtl.js ---------------------------------------------------------
+// Reading a ROTT level file (.RTL / .RTC / .RTR) in the browser.
+//
+// Ported from ../ROTT's rott.py (rlew/expand/load/planes). A level file holds
+// 100 slots; each says whether it is used, its RLEW tag, its name, and where
+// its three 128x128 planes live: walls, things, and the info plane.
+
+const HDR = 8, MAPHDR = 64, NMAPS = 100, DIM = 128;
+
+// Wolf3D-style RLEW expansion, `skip` leading bytes ignored.
+function rlew(b, tag, nwords, skip) {
+  const out = new Uint16Array(nwords);
+  let i = skip, k = 0;
+  const n = b.length;
+  while (k < nwords && i + 1 < n) {
+    const w = b[i] | (b[i + 1] << 8);
+    i += 2;
+    if (w === tag) {
+      const cnt = b[i] | (b[i + 1] << 8), val = b[i + 2] | (b[i + 3] << 8);
+      i += 4;
+      for (let c = 0; c < cnt && k < nwords; c++) out[k++] = val;
+    } else {
+      out[k++] = w;
+    }
+  }
+  return k === nwords ? out : null;
+}
+
+// A plane may or may not carry a leading uint16 expanded-length. Try both.
+function expand(b, tag, nwords) {
+  return rlew(b, tag, nwords, 2) || rlew(b, tag, nwords, 0);
+}
+
+class Rtl {
+  constructor(buf) {
+    this.bytes = new Uint8Array(buf);
+    const sig = String.fromCharCode(...this.bytes.subarray(0, 3));
+    if (sig !== 'RTL' && sig !== 'RTC' && sig !== 'RTR')
+      throw new Error('not an RTL/RTC/RTR file: ' + sig);
+    this.sig = sig;
+    const dv = new DataView(buf);
+    this.maps = [];
+    for (let i = 0; i < NMAPS; i++) {
+      const o = HDR + i * MAPHDR;
+      const used = dv.getUint32(o, true);
+      const tag = dv.getUint32(o + 8, true), spec = dv.getUint32(o + 12, true);
+      const start = [0, 1, 2].map(k => dv.getUint32(o + 16 + k * 4, true));
+      const length = [0, 1, 2].map(k => dv.getUint32(o + 28 + k * 4, true));
+      let name = '';
+      for (let k = 0; k < 24; k++) {
+        const c = this.bytes[o + 40 + k];
+        if (!c) break;
+        name += String.fromCharCode(c);
+      }
+      this.maps.push({n: i, used, tag, spec, name, start, length});
+    }
+  }
+
+  // The levels a player can actually pick.
+  used() { return this.maps.filter(m => m.used); }
+
+  // [walls, things, info], each 128*128 words.
+  planes(m) {
+    return m.start.map((s, k) =>
+      expand(this.bytes.subarray(s, s + m.length[k]), m.tag, DIM * DIM));
+  }
+}
+
+
+// ---- js/zip.js ---------------------------------------------------------
+// Just enough ZIP to get the game files out of a shareware archive.
+//
+// A .zip from archive.org is both fewer requests and less to download than
+// the files loose: ROTT.zip is 3.7 MB against 6.5 MB for the WAD and RTL on
+// their own. Deflate is done by the browser's own DecompressionStream, so
+// this is a directory parser and nothing more.
+
+const EOCD = 0x06054b50, EOCD64_LOC = 0x07064b50, CEN = 0x02014b50;
+
+function findEocd(dv) {
+  // The end record is last, but a comment may follow it; scan back for it.
+  const max = Math.min(dv.byteLength, 0xffff + 22);
+  for (let i = 22; i <= max; i++) {
+    const at = dv.byteLength - i;
+    if (dv.getUint32(at, true) === EOCD) return at;
+  }
+  return -1;
+}
+
+// [{name, size, method, offset}], everything the central directory says.
+function entries(buf) {
+  const dv = new DataView(buf);
+  const eocd = findEocd(dv);
+  if (eocd < 0) throw new Error('not a zip (no end record)');
+  let count = dv.getUint16(eocd + 10, true);
+  let start = dv.getUint32(eocd + 16, true);
+  // Zip64, when the 32-bit fields are saturated.
+  if (start === 0xffffffff || count === 0xffff) {
+    for (let i = eocd - 20; i >= 0; i--) {
+      if (dv.getUint32(i, true) !== EOCD64_LOC) continue;
+      const rec = Number(dv.getBigUint64(i + 8, true));
+      count = Number(dv.getBigUint64(rec + 32, true));
+      start = Number(dv.getBigUint64(rec + 48, true));
+      break;
+    }
+  }
+  const out = [];
+  let at = start;
+  for (let i = 0; i < count && at + 46 <= dv.byteLength; i++) {
+    if (dv.getUint32(at, true) !== CEN) break;
+    const method = dv.getUint16(at + 10, true);
+    const csize = dv.getUint32(at + 20, true);
+    const size = dv.getUint32(at + 24, true);
+    const nlen = dv.getUint16(at + 28, true);
+    const elen = dv.getUint16(at + 30, true);
+    const clen = dv.getUint16(at + 32, true);
+    const offset = dv.getUint32(at + 42, true);
+    let name = '';
+    const b = new Uint8Array(buf, at + 46, nlen);
+    for (const c of b) name += String.fromCharCode(c);
+    out.push({name, size, csize, method, offset});
+    at += 46 + nlen + elen + clen;
+  }
+  return out;
+}
+
+async function inflate(bytes) {
+  if (typeof DecompressionStream !== 'function')
+    throw new Error('this browser cannot inflate; unzip the file yourself');
+  const ds = new DecompressionStream('deflate-raw');
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer()).buffer;
+}
+
+// One entry's bytes. The local header repeats the name and extra fields, and
+// its lengths are the ones to trust for where the data starts.
+async function read(buf, entry) {
+  const dv = new DataView(buf);
+  const at = entry.offset;
+  if (dv.getUint32(at, true) !== 0x04034b50) throw new Error('bad local header');
+  const nlen = dv.getUint16(at + 26, true), elen = dv.getUint16(at + 28, true);
+  const from = at + 30 + nlen + elen;
+  const bytes = new Uint8Array(buf, from, entry.csize || entry.size);
+  if (entry.method === 0) return bytes.slice().buffer;      // stored
+  if (entry.method === 8) return inflate(bytes);            // deflate
+  throw new Error(`unsupported compression (method ${entry.method})`);
+}
+
+function isZip(buf) {
+  const b = new Uint8Array(buf, 0, 4);
+  return b[0] === 0x50 && b[1] === 0x4b && (b[2] === 3 || b[2] === 5 || b[2] === 7);
+}
+
+// Pull out whatever looks like game data: the art and the levels, by
+// extension, largest first where a zip holds several.
+async function gameFiles(buf) {
+  const want = /\.(wad|rtl|rtc|rtr)$/i;
+  const picks = entries(buf).filter(e => want.test(e.name))
+                            .sort((a, b) => b.size - a.size);
+  const out = [];
+  for (const e of picks) out.push(await read(buf, e));
+  return out;
+}
+
+
+// ---- js/load.js --------------------------------------------------------
+// Getting the game files in: from the player's disk, or from a URL, with
+// whatever came last kept in the browser so the next visit costs nothing.
+//
+// Nothing here is ROTT-specific beyond the two file extensions -- which file
+// is the art and which is the levels is decided by what the headers say.
+
+
+const DB = 'rott-web', STORE = 'files';
+
+// Opened from a file:// page, IndexedDB never answers at all -- no success,
+// no error, nothing -- so every call here is raced against a short timer.
+// Caching is a convenience; nothing waits on it.
+const CACHE_TIMEOUT = 1000;
+function withTimeout(p) {
+  return Promise.race([p, new Promise((ok) => setTimeout(() => ok(null), CACHE_TIMEOUT))]);
+}
+function idb() {
+  return withTimeout(new Promise((ok, no) => {
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  }));
+}
+
+async function cacheGet(key) {
+  try {
+    const db = await idb();
+    if (!db) return null;
+    return await withTimeout(new Promise((ok, no) => {
+      const r = db.transaction(STORE).objectStore(STORE).get(key);
+      r.onsuccess = () => ok(r.result || null);
+      r.onerror = () => no(r.error);
+    }));
+  } catch (e) { return null; }      // private windows, blocked storage
+}
+
+async function cachePut(key, value) {
+  try {
+    const db = await idb();
+    if (!db) return;
+    await withTimeout(new Promise((ok, no) => {
+      const t = db.transaction(STORE, 'readwrite');
+      t.objectStore(STORE).put(value, key);
+      t.oncomplete = ok;
+      t.onerror = () => no(t.error);
+    }));
+  } catch (e) { /* caching is a convenience, never a requirement */ }
+}
+
+// Tell the files apart by their own headers rather than their names, so
+// oddly named copies still work.
+function sniff(buf) {
+  const b = new Uint8Array(buf, 0, 4);
+  const s = String.fromCharCode(b[0], b[1], b[2], b[3]);
+  if (s === 'IWAD' || s === 'PWAD') return 'wad';
+  if (s.startsWith('RTL') || s.startsWith('RTC') || s.startsWith('RTR')) return 'rtl';
+  return null;
+}
+
+// A zip is unpacked first: one shareware archive holds both files and is
+// smaller than either on its own.
+async function open(buffers) {
+  const flat = [];
+  for (const buf of buffers) {
+    if (isZip(buf)) flat.push(...await gameFiles(buf));
+    else flat.push(buf);
+  }
+  let wad = null, rtl = null;
+  for (const buf of flat) {
+    const kind = sniff(buf);
+    if (kind === 'wad') wad = new Wad(buf);
+    else if (kind === 'rtl') rtl = new Rtl(buf);
+  }
+  return {wad, rtl};
+}
+
+async function fromFiles(files, onProgress = () => {}) {
+  const bufs = [];
+  for (const f of files) {
+    onProgress(`reading ${f.name}`);
+    bufs.push(await f.arrayBuffer());
+  }
+  // Keeping a copy for next time is nobody's business but the cache's:
+  // writing 6.4 MB into IndexedDB took seconds, and the player was waiting
+  // on it before the level list appeared.
+  files.length && bufs.forEach((b, i) => cachePut(files[i].name.toUpperCase(), b));
+  return await open(bufs);
+}
+
+// A URL is one file; call it once per file. Progress is reported in bytes
+// when the server says how big the thing is.
+async function fromUrl(url, onProgress = () => {}) {
+  const hit = await cacheGet(url);
+  if (hit) { onProgress('from cache'); return hit; }
+  const res = await fetch(url, {mode: 'cors'});
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const total = +res.headers.get('content-length') || 0;
+  if (!res.body) {                     // no streams: take it in one go
+    const buf = await res.arrayBuffer();
+    cachePut(url, buf);
+    return buf;
+  }
+  const reader = res.body.getReader(), chunks = [];
+  let got = 0;
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    onProgress(total ? `${(got / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB`
+                     : `${(got / 1e6).toFixed(1)} MB`);
+  }
+  const out = new Uint8Array(got);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  cachePut(url, out.buffer);          // in the background; nothing waits
+  return out.buffer;
+}
+
+async function cached(names) {
+  const bufs = [];
+  for (const n of names) {
+    const b = await cacheGet(n);
+    if (b) bufs.push(b);
+  }
+  return bufs.length ? await open(bufs) : null;
+}
+
+
+// ---- js/main.js --------------------------------------------------------
+// The front page: get the files in, say what is in them, and let a level be
+// picked. Nothing about the game is hardcoded here -- the level list is
+// whatever the level file says it holds.
+
+
+const $ = (id) => document.getElementById(id);
+const status = $('status');
+const say = (msg, bad = false) => { status.textContent = msg; status.classList.toggle('bad', bad); };
+
+const held = {wad: null, rtl: null, buffers: []};
+
+function describe() {
+  const bits = [];
+  if (held.wad) bits.push(`${held.wad.lumps.length} lumps`);
+  if (held.rtl) bits.push(`${held.rtl.used().length} levels`);
+  if (!bits.length) return;
+  say(bits.join(', ') + (held.wad && held.rtl ? '' : ' -- still need the ' + (held.wad ? 'levels (.RTL)' : 'art (.WAD)')));
+  listLevels();
+}
+
+function listLevels() {
+  const box = $('levels');
+  box.textContent = '';
+  if (!held.rtl) return;
+  const ol = document.createElement('ol');
+  for (const m of held.rtl.used()) {
+    const li = document.createElement('li');
+    li.textContent = m.name;
+    const b = document.createElement('button');
+    b.textContent = 'play';
+    b.disabled = !held.wad;
+    b.onclick = () => play(m);
+    li.append(b);
+    ol.append(li);
+  }
+  box.append(ol);
+}
+
+function play(m) {
+  // The engine goes here next: build the level from the planes and hand it to
+  // the renderer. For now, prove the level really decodes from the file.
+  const planes = held.rtl.planes(m);
+  if (!planes[0]) { say(`${m.name}: level data would not expand`, true); return; }
+  const walls = new Set(), things = new Set();
+  planes[0].forEach(v => v && walls.add(v));
+  planes[1].forEach(v => v && things.add(v));
+  say(`${m.name}: ${planes[0].length} tiles, ${walls.size} wall kinds, ${things.size} thing kinds`);
+}
+
+function took(t0) { return `${Math.round(performance.now() - t0)} ms`; }
+
+$('pick').addEventListener('change', async (e) => {
+  const t0 = performance.now();
+  try {
+    say('reading...');
+    const got = await fromFiles(e.target.files, say);
+    if (got.wad) held.wad = got.wad;
+    if (got.rtl) held.rtl = got.rtl;
+    describe();
+    say(status.textContent + `  (${took(t0)})`);
+  } catch (err) { say(String(err.message || err), true); }
+});
+
+$('get').addEventListener('click', async () => {
+  const url = $('url').value.trim();
+  if (!url) return;
+  const t0 = performance.now();
+  try {
+    say('fetching...');
+    const buf = await fromUrl(url, (p) => say('fetching ' + p));
+    const got = await open([buf]);
+    if (got.wad) held.wad = got.wad;
+    if (got.rtl) held.rtl = got.rtl;
+    if (!got.wad && !got.rtl) { say('that file is neither a WAD nor a level file', true); return; }
+    describe();
+    say(status.textContent + `  (${took(t0)})`);
+  } catch (err) {
+    say(`could not load: ${err.message || err}. If the host does not allow ` +
+        `cross-origin reads, download the file and pick it above.`, true);
+  }
+});
+
+// Whatever was loaded last time is already here.
+cached(['HUNTBGIN.WAD', 'HUNTBGIN.RTL']).then((got) => {
+  if (!got) return;
+  held.wad = got.wad || held.wad;
+  held.rtl = got.rtl || held.rtl;
+  describe();
+});
+
+})();
+</script>

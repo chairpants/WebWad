@@ -83,8 +83,11 @@ export async function fromFiles(files, onProgress = () => {}) {
   for (const f of files) {
     onProgress(`reading ${f.name}`);
     bufs.push(await f.arrayBuffer());
-    await cachePut(f.name.toUpperCase(), bufs[bufs.length - 1]);
   }
+  // Keeping a copy for next time is nobody's business but the cache's:
+  // writing 6.4 MB into IndexedDB took seconds, and the player was waiting
+  // on it before the level list appeared.
+  files.length && bufs.forEach((b, i) => cachePut(files[i].name.toUpperCase(), b));
   return await open(bufs);
 }
 
@@ -98,7 +101,7 @@ export async function fromUrl(url, onProgress = () => {}) {
   const total = +res.headers.get('content-length') || 0;
   if (!res.body) {                     // no streams: take it in one go
     const buf = await res.arrayBuffer();
-    await cachePut(url, buf);
+    cachePut(url, buf);
     return buf;
   }
   const reader = res.body.getReader(), chunks = [];
@@ -114,7 +117,7 @@ export async function fromUrl(url, onProgress = () => {}) {
   const out = new Uint8Array(got);
   let at = 0;
   for (const c of chunks) { out.set(c, at); at += c.length; }
-  await cachePut(url, out.buffer);
+  cachePut(url, out.buffer);          // in the background; nothing waits
   return out.buffer;
 }
 

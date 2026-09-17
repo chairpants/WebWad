@@ -1,4 +1,4 @@
-// Build dist/rott.html: the whole site as one file you can double-click.
+// Build rott.html: the whole site as one file you can double-click.
 //
 //     node tools/bundle.mjs
 //
@@ -7,7 +7,7 @@
 // code with the modules inlined in dependency order. There is no minifier and
 // no dependency: the point is that the output stays readable.
 
-import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {dirname, join} from 'node:path';
 
@@ -33,7 +33,6 @@ const html = readFileSync(join(root, 'index.html'), 'utf8')
   .replace('<script type="module" src="js/main.js"></script>',
            '<script>\n(function () {\n' + js + '\n})();\n</script>');
 
-mkdirSync(join(root, 'dist'), {recursive: true});
-const out = join(root, 'dist', 'rott.html');
+const out = join(root, 'rott.html');
 writeFileSync(out, html);
 console.log(`${out}  ${(html.length / 1024).toFixed(1)} KB`);
