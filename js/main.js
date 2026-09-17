@@ -3,6 +3,7 @@
 // whatever the level file says it holds.
 
 import {fromFiles, fromUrl, open, cached, companions} from './load.js';
+import {Level} from './render.js';
 
 const $ = (id) => document.getElementById(id);
 const status = $('status');
@@ -37,15 +38,70 @@ function listLevels() {
   box.append(ol);
 }
 
-function play(m) {
-  // The engine goes here next: build the level from the planes and hand it to
-  // the renderer. For now, prove the level really decodes from the file.
+let level = null;
+
+// three.js is vendored and loaded by an ordinary script tag: a module would
+// be refused from file://, and a CDN would put someone else's uptime between
+// a player and their own game files.
+function getThree() {
+  if (!window.THREE) throw new Error('three.js did not load (vendor/three.min.js)');
+  return window.THREE;
+}
+
+async function play(m) {
   const planes = held.rtl.planes(m);
   if (!planes[0]) { say(`${m.name}: level data would not expand`, true); return; }
-  const walls = new Set(), things = new Set();
-  planes[0].forEach(v => v && walls.add(v));
-  planes[1].forEach(v => v && things.add(v));
-  say(`${m.name}: ${planes[0].length} tiles, ${walls.size} wall kinds, ${things.size} thing kinds`);
+  try {
+    say(`${m.name}: building...`);
+    const THREE = getThree();
+    const view = document.getElementById('view');
+    const canvas = document.getElementById('canvas');
+    view.hidden = false;
+    document.getElementById('front').hidden = true;
+    const t0 = performance.now();
+    level = new Level(THREE, canvas, held.wad, planes);
+    window.level = level;             // a handle to poke at from the console
+    document.getElementById('levelname').textContent = m.name;
+    say(`${m.name}: built in ${Math.round(performance.now() - t0)} ms`);
+    run();
+  } catch (err) {
+    say(`${m.name}: ${err.message || err}`, true);
+    throw err;
+  }
+}
+
+let last = 0;
+function run() {
+  const canvas = document.getElementById('canvas');
+  const loop = (t) => {
+    if (!level) return;
+    const dt = Math.min(0.1, (t - last) / 1000);
+    last = t;
+    level.step(dt);
+    document.getElementById('pos').textContent = level.where();
+    requestAnimationFrame(loop);
+  };
+  addEventListener('resize', () => level && level.resize(canvas));
+  canvas.onclick = () => canvas.requestPointerLock();
+  addEventListener('mousemove', (e) => {
+    if (!level || document.pointerLockElement !== canvas) return;
+    level.yaw -= e.movementX * 0.0022;
+    level.pitch = Math.max(-1.5, Math.min(1.5, level.pitch - e.movementY * 0.0022));
+  });
+  addEventListener('keydown', (e) => {
+    if (!level) return;
+    if (e.code === 'Escape') { leave(); return; }
+    level.keys[e.code] = true;
+  });
+  addEventListener('keyup', (e) => level && (level.keys[e.code] = false));
+  requestAnimationFrame((t) => { last = t; loop(t); });
+}
+
+function leave() {
+  level = null;
+  document.exitPointerLock && document.exitPointerLock();
+  document.getElementById('view').hidden = true;
+  document.getElementById('front').hidden = false;
 }
 
 function took(t0) { return `${Math.round(performance.now() - t0)} ms`; }

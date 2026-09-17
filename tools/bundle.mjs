@@ -12,7 +12,8 @@ import {fileURLToPath} from 'node:url';
 import {dirname, join} from 'node:path';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const ORDER = ['js/wad.js', 'js/rtl.js', 'js/zip.js', 'js/load.js', 'js/main.js'];
+const ORDER = ['js/wad.js', 'js/rtl.js', 'js/zip.js', 'js/level.js',
+               'js/render.js', 'js/load.js', 'js/main.js'];
 
 // Modules here export plain declarations and import by name only, so
 // inlining is a matter of dropping the import lines and the export keyword.
@@ -30,6 +31,10 @@ function inline(src, file) {
 
 const js = ORDER.map(f => inline(readFileSync(join(root, f), 'utf8'), f)).join('\n\n');
 const html = readFileSync(join(root, 'index.html'), 'utf8')
+  // three.js goes in whole: a file:// page can run a classic script but may
+  // not fetch one from beside it.
+  .replace('<script src="vendor/three.min.js"></script>',
+           '<script>' + readFileSync(join(root, 'vendor/three.min.js'), 'utf8') + '</script>')
   .replace('<script type="module" src="js/main.js"></script>',
            '<script>\n(function () {\n' + js + '\n})();\n</script>');
 

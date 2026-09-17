@@ -23,8 +23,14 @@
  li button{margin-left:.5rem;padding:.1rem .5rem;font-size:12px}
  .files{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
  .hint{color:#6f737d;font-size:12px;margin-top:.6rem}
+ #view{position:fixed;inset:0;background:#000}
+ #canvas{width:100%;height:100%;display:block}
+ #hud{position:fixed;left:0;right:0;top:0;padding:.4rem .7rem;color:#d9dbe0;
+      background:linear-gradient(#000a,#0000);font-size:12px;letter-spacing:.06em;
+      pointer-events:none;display:flex;gap:1rem}
+ #hud .dim{color:#8b8f99;margin-left:auto}
 </style>
-<main>
+<main id="front">
   <h1>Rise of the Triad</h1>
   <p class="sub">in a browser, from your own game files</p>
 
@@ -58,6 +64,12 @@
   <div id="status"></div>
   <div id="levels"></div>
 </main>
+<div id="view" hidden>
+  <canvas id="canvas"></canvas>
+  <div id="hud"><span id="levelname"></span> <span id="pos"></span>
+    <span class="dim">click to look &middot; WASD &middot; shift to run &middot; esc to leave</span></div>
+</div>
+<script src="vendor/three.min.js"></script>
 <script type="module" src="js/main.js"></script>
 <script>
 // A page opened with file:// cannot load the module above -- the browser

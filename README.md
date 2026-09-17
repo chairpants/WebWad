@@ -38,6 +38,9 @@ about 45 ms -- so load time is download time and nothing else.
 
     js/wad.js    lump directory, palette, the column-major masked shapes
     js/rtl.js    level files: RLEW expansion, the three 128x128 planes
+    js/level.js  what the tiles mean: walls, doors, heights, wall lumps
+    js/render.js the level drawn, and walking around it
+    vendor/      three.js, as a plain script so a file:// page can run it
     js/load.js   file picker, URL fetch, IndexedDB cache
     js/main.js   the front page
     tools/       reference generator, run against ../ROTT
