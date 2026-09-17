@@ -1,0 +1,190 @@
+{
+ "bytes": 6436871,
+ "lumps": 2091,
+ "pal": "73c533b259994b90",
+ "patches": {
+  "ANGS1": {
+   "h": 89,
+   "idx": "f561c1b43c98c907",
+   "mask": "37f24c24e978e176",
+   "orig": 128,
+   "top": -38,
+   "w": 36
+  },
+  "BAZOOKA1": {
+   "h": 62,
+   "idx": "484bea8cce2a709e",
+   "mask": "d65aa2d1a4bec6f6",
+   "orig": 96,
+   "top": -34,
+   "w": 89
+  },
+  "EXPLOS1": {
+   "h": 32,
+   "idx": "a82ada140504ea09",
+   "mask": "f53610c884e91780",
+   "orig": 128,
+   "top": -62,
+   "w": 44
+  },
+  "FWALL1": {
+   "h": 39,
+   "idx": "dd0a174815b2c979",
+   "mask": "bb1979459914fefe",
+   "orig": 128,
+   "top": -87,
+   "w": 47
+  },
+  "GODHAND1": {
+   "h": 81,
+   "idx": "e41366fde04a7dcc",
+   "mask": "990c10c925956df0",
+   "orig": 298,
+   "top": -217,
+   "w": 136
+  },
+  "LIPLEAD1": {
+   "h": 85,
+   "idx": "24578cc479f0d5bd",
+   "mask": "caeb4bae69b0773d",
+   "orig": 128,
+   "top": -43,
+   "w": 53
+  },
+  "LWGS1": {
+   "h": 94,
+   "idx": "a615a8a2ecc3c657",
+   "mask": "bfeb61730f6574e0",
+   "orig": 128,
+   "top": -34,
+   "w": 37
+  },
+  "MONKMEAL": {
+   "h": 12,
+   "idx": "16a40a8f9589adaa",
+   "mask": "f74abf5a86a01951",
+   "orig": 128,
+   "top": -116,
+   "w": 30
+  },
+  "SKEL1": {
+   "h": 37,
+   "idx": "3d632f17366890a8",
+   "mask": "61b09006b2570322",
+   "orig": 128,
+   "top": -90,
+   "w": 42
+  },
+  "SPRING1": {
+   "h": 18,
+   "idx": "ac8e34537d9790b8",
+   "mask": "17c1790b9a460803",
+   "orig": 128,
+   "top": -110,
+   "w": 93
+  }
+ },
+ "raw": {
+  "WALL1": {
+   "bytes": 4096,
+   "sha": "c1310e32eaaaece2"
+  }
+ },
+ "rtl": {
+  "bytes": 103316,
+  "file": "HUNTBGIN.RTL",
+  "levels": [
+   {
+    "n": 0,
+    "name": "The HUNT Begins",
+    "planes": [
+     "87e7d20e4b2eb724",
+     "5a389474ed236449",
+     "0f34ed59824ef789"
+    ]
+   },
+   {
+    "n": 1,
+    "name": "Foggy Mountain",
+    "planes": [
+     "c0e7a62f2f0286a7",
+     "e776f027ebb34d66",
+     "bed56b3afa16d4d1"
+    ]
+   },
+   {
+    "n": 2,
+    "name": "The Fourth Door",
+    "planes": [
+     "91814d24953bebeb",
+     "afc7d9504c5eec71",
+     "5187b84be8ae788b"
+    ]
+   },
+   {
+    "n": 3,
+    "name": "Dark Tunnels",
+    "planes": [
+     "ec03f799974010a8",
+     "f623471ac9be0aa0",
+     "ffcca74d960ebacb"
+    ]
+   },
+   {
+    "n": 4,
+    "name": "Metal Threat",
+    "planes": [
+     "e32c813c025573a0",
+     "4bd4d98e914a7e53",
+     "3667e305e34b56d3"
+    ]
+   },
+   {
+    "n": 5,
+    "name": "Ride 'em, Cowboy!",
+    "planes": [
+     "c36aeb559cb1a37c",
+     "16b4715b1455aa06",
+     "11084e50e43a7fe6"
+    ]
+   },
+   {
+    "n": 6,
+    "name": "Boom Boom Boom",
+    "planes": [
+     "febcf1e81b4bd585",
+     "1ce6d40f4945527b",
+     "d093ffeb839694ed"
+    ]
+   },
+   {
+    "n": 7,
+    "name": "Wall To Wall",
+    "planes": [
+     "b3174b62e22ea59d",
+     "5c3b38e72bb4bd95",
+     "f4232e8d4fafe85d"
+    ]
+   },
+   {
+    "n": 8,
+    "name": "Too Tall",
+    "planes": [
+     "8e2913b6b5a26db7",
+     "3aaf391857b82ee9",
+     "6e83e1c247da3790"
+    ]
+   },
+   {
+    "n": 9,
+    "name": "Play Room",
+    "planes": [
+     "a2d26be9225b5105",
+     "17916dc01738261d",
+     "cc034943feb46feb"
+    ]
+   }
+  ]
+ },
+ "wad": "HUNTBGIN.WAD"
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ROTT web</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;background:#15161a;color:#d9dbe0;
+      font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+ main{max-width:52rem;margin:0 auto;padding:2rem 1rem}
+ h1{font-size:1.1rem;letter-spacing:.2em;text-transform:uppercase;color:#c85a3a;margin:0 0 .25rem}
+ p.sub{margin:0 0 2rem;color:#8b8f99}
+ fieldset{border:1px solid #2c2f37;border-radius:6px;padding:1rem;margin:0 0 1rem}
+ legend{padding:0 .4rem;color:#8b8f99;text-transform:uppercase;letter-spacing:.14em;font-size:11px}
+ input[type=url]{width:100%;box-sizing:border-box;background:#101116;color:inherit;
+                 border:1px solid #2c2f37;border-radius:4px;padding:.5rem;font:inherit}
+ button{background:#22242b;color:inherit;border:1px solid #3a3d47;border-radius:4px;
+        padding:.45rem .9rem;font:inherit;cursor:pointer}
+ button:hover{background:#2b2e36}
+ #status{margin:1rem 0;color:#8b8f99;min-height:1.5em}
+ #status.bad{color:#c85a3a}
+ ol{padding-left:1.4rem;margin:.5rem 0 0}
+ li{padding:.15rem 0}
+ li button{margin-left:.5rem;padding:.1rem .5rem;font-size:12px}
+ .files{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+ .hint{color:#6f737d;font-size:12px;margin-top:.6rem}
+</style>
+<main>
+  <h1>Rise of the Triad</h1>
+  <p class="sub">in a browser, from your own game files</p>
+
+  <fieldset>
+    <legend>from your computer</legend>
+    <div class="files">
+      <input type="file" id="pick" multiple accept=".wad,.rtl,.rtc,.rtr,.WAD,.RTL">
+    </div>
+    <p class="hint">Pick both files: the art (<code>.WAD</code>) and the levels
+      (<code>.RTL</code>). Nothing is uploaded anywhere; they stay in this browser.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>from a link</legend>
+    <input type="url" id="url" placeholder="https://archive.org/.../HUNTBGIN.WAD" spellcheck="false">
+    <p class="files" style="margin:.6rem 0 0">
+      <button id="get">Load</button>
+      <span class="hint" style="margin:0">One file at a time; load the WAD, then the RTL.</span>
+    </p>
+    <p class="hint">The host has to allow cross-origin reads. Archive.org usually
+      does; a site that does not will fail here and not in your browser's address bar.</p>
+  </fieldset>
+
+  <div id="status"></div>
+  <div id="levels"></div>
+</main>
+<script type="module" src="js/main.js"></script>
