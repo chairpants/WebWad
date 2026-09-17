@@ -69,7 +69,7 @@ $('get').addEventListener('click', async () => {
   try {
     say('fetching...');
     const buf = await fromUrl(url, (p) => say('fetching ' + p));
-    const got = open([buf]);
+    const got = await open([buf]);
     if (got.wad) held.wad = got.wad;
     if (got.rtl) held.rtl = got.rtl;
     if (!got.wad && !got.rtl) { say('that file is neither a WAD nor a level file', true); return; }

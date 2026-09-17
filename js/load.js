@@ -6,6 +6,7 @@
 
 import {Wad} from './wad.js';
 import {Rtl} from './rtl.js';
+import {isZip, gameFiles} from './zip.js';
 
 const DB = 'rott-web', STORE = 'files';
 
@@ -51,9 +52,16 @@ function sniff(buf) {
   return null;
 }
 
-export function open(buffers) {
-  let wad = null, rtl = null;
+// A zip is unpacked first: one shareware archive holds both files and is
+// smaller than either on its own.
+export async function open(buffers) {
+  const flat = [];
   for (const buf of buffers) {
+    if (isZip(buf)) flat.push(...await gameFiles(buf));
+    else flat.push(buf);
+  }
+  let wad = null, rtl = null;
+  for (const buf of flat) {
     const kind = sniff(buf);
     if (kind === 'wad') wad = new Wad(buf);
     else if (kind === 'rtl') rtl = new Rtl(buf);
@@ -68,7 +76,7 @@ export async function fromFiles(files, onProgress = () => {}) {
     bufs.push(await f.arrayBuffer());
     await cachePut(f.name.toUpperCase(), bufs[bufs.length - 1]);
   }
-  return open(bufs);
+  return await open(bufs);
 }
 
 // A URL is one file; call it once per file. Progress is reported in bytes
@@ -107,5 +115,5 @@ export async function cached(names) {
     const b = await cacheGet(n);
     if (b) bufs.push(b);
   }
-  return bufs.length ? open(bufs) : null;
+  return bufs.length ? await open(bufs) : null;
 }

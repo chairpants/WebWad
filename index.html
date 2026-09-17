@@ -31,21 +31,27 @@
   <fieldset>
     <legend>from your computer</legend>
     <div class="files">
-      <input type="file" id="pick" multiple accept=".wad,.rtl,.rtc,.rtr,.WAD,.RTL">
+      <input type="file" id="pick" multiple accept=".wad,.rtl,.rtc,.rtr,.zip,.WAD,.RTL,.ZIP">
     </div>
-    <p class="hint">Pick both files: the art (<code>.WAD</code>) and the levels
-      (<code>.RTL</code>). Nothing is uploaded anywhere; they stay in this browser.</p>
+    <p class="hint">Pick the shareware <code>.zip</code>, or both files out of it:
+      the art (<code>.WAD</code>) and the levels (<code>.RTL</code>). Nothing is
+      uploaded anywhere; they stay in this browser.</p>
   </fieldset>
 
   <fieldset>
     <legend>from a link</legend>
-    <input type="url" id="url" placeholder="https://archive.org/.../HUNTBGIN.WAD" spellcheck="false">
+    <input type="url" id="url" spellcheck="false"
+           placeholder="https://archive.org/download/rott_shareware/ROTT.zip"
+           value="https://archive.org/download/rott_shareware/ROTT.zip">
     <p class="files" style="margin:.6rem 0 0">
       <button id="get">Load</button>
-      <span class="hint" style="margin:0">One file at a time; load the WAD, then the RTL.</span>
+      <span class="hint" style="margin:0">A <code>.zip</code> brings both files in one
+        go, and less of them: 3.7 MB against 6.5 MB loose.</span>
     </p>
-    <p class="hint">The host has to allow cross-origin reads. Archive.org usually
-      does; a site that does not will fail here and not in your browser's address bar.</p>
+    <p class="hint">The host has to allow cross-origin reads. Archive.org does, both
+      for a zip and for a file inside one
+      (<code>&hellip;/ROTT.zip/HUNTBGIN.WAD</code>); a host that does not will fail
+      here and not in your browser's address bar.</p>
   </fieldset>
 
   <div id="status"></div>
