@@ -78,7 +78,10 @@
 </script>
 <script>
 (function () {
-// ---- js/wad.js ---------------------------------------------------------
+const MODULES = {};
+
+// ---- js/wad.js -----------------------------------------------------
+MODULES['js/wad.js'] = (function () {
 // Reading a ROTT WAD in the browser.
 //
 // Ported from the exporter in ../ROTT (rott.py's Wad class and rott_gfx.py's
@@ -227,8 +230,11 @@ function rawLump(wad, name, expect) {
   return (b && (expect === undefined || b.length === expect)) ? b : null;
 }
 
+return {Wad, patchIndexed, rawLump};
+})();
 
-// ---- js/rtl.js ---------------------------------------------------------
+// ---- js/rtl.js -----------------------------------------------------
+MODULES['js/rtl.js'] = (function () {
 // Reading a ROTT level file (.RTL / .RTC / .RTR) in the browser.
 //
 // Ported from ../ROTT's rott.py (rlew/expand/load/planes). A level file holds
@@ -296,8 +302,11 @@ class Rtl {
   }
 }
 
+return {Rtl};
+})();
 
-// ---- js/zip.js ---------------------------------------------------------
+// ---- js/zip.js -----------------------------------------------------
+MODULES['js/zip.js'] = (function () {
 // Just enough ZIP to get the game files out of a shareware archive.
 //
 // A .zip from archive.org is both fewer requests and less to download than
@@ -392,8 +401,11 @@ async function gameFiles(buf) {
   return out;
 }
 
+return {entries, read, isZip, gameFiles};
+})();
 
-// ---- js/level.js -------------------------------------------------------
+// ---- js/level.js ---------------------------------------------------
+MODULES['js/level.js'] = (function () {
 // What a level's tiles mean, and the geometry that follows from them.
 //
 // Ported from ../ROTT (rott.py's predicates, level_info, level_height and the
@@ -535,16 +547,18 @@ function planesMesh(storeys) {
   return {floor: quad(0, false), ceil: quad(H, true)};
 }
 
+return {storeysOf, levelInfo, spawnOf, wallLump, flat, solidMap, walls, planesMesh, DIM, isDoor, isWall, isMask, isArea, blocks};
+})();
 
-// ---- js/render.js ------------------------------------------------------
+// ---- js/render.js --------------------------------------------------
+MODULES['js/render.js'] = (function () {
 // Drawing a level, and walking around it.
 //
 // The art is 8-bit: every texture is palette indices, turned to RGBA here
 // once. Walls are batched by tile so the whole level is a handful of draw
 // calls.
 
-import {DIM, TILE, walls, planesMesh, wallLump, flat, solidMap, storeysOf,
-        levelInfo, spawnOf} from './level.js';
+const {DIM, TILE, walls, planesMesh, wallLump, flat, solidMap, storeysOf, levelInfo, spawnOf} = MODULES['js/level.js'];
 
 const RADIUS = 22;          // the player's half-width, as the exporter has it
 const EYE = 39;             // z + playerheight in ROTT's own terms
@@ -682,14 +696,20 @@ class Level {
   }
 }
 
+return {Level};
+})();
 
-// ---- js/load.js --------------------------------------------------------
+// ---- js/load.js ----------------------------------------------------
+MODULES['js/load.js'] = (function () {
 // Getting the game files in: from the player's disk, or from a URL, with
 // whatever came last kept in the browser so the next visit costs nothing.
 //
 // Nothing here is ROTT-specific beyond the two file extensions -- which file
 // is the art and which is the levels is decided by what the headers say.
 
+const {Wad} = MODULES['js/wad.js'];
+const {Rtl} = MODULES['js/rtl.js'];
+const {isZip, gameFiles} = MODULES['js/zip.js'];
 
 const DB = 'rott-web', STORE = 'files';
 
@@ -829,12 +849,17 @@ async function cached(names) {
   return bufs.length ? await open(bufs) : null;
 }
 
+return {open, fromFiles, fromUrl, companions, cached};
+})();
 
-// ---- js/main.js --------------------------------------------------------
+// ---- js/main.js ----------------------------------------------------
+MODULES['js/main.js'] = (function () {
 // The front page: get the files in, say what is in them, and let a level be
 // picked. Nothing about the game is hardcoded here -- the level list is
 // whatever the level file says it holds.
 
+const {fromFiles, fromUrl, open, cached, companions} = MODULES['js/load.js'];
+const {Level} = MODULES['js/render.js'];
 
 const $ = (id) => document.getElementById(id);
 const status = $('status');
@@ -990,6 +1015,8 @@ cached(['HUNTBGIN.WAD', 'HUNTBGIN.RTL']).then((got) => {
   describe();
 });
 
+return {};
+})();
 })();
 </script>
 <script>
