@@ -5,7 +5,9 @@
 // calls.
 
 import {DIM, TILE, walls, planesMesh, wallLump, flat, solidMap, storeysOf,
-        levelInfo, spawnOf, doors, doorFace, maskWalls} from './level.js';
+        levelInfo, spawnOf, doors, doorFace, maskWalls, platforms,
+        platformWalls, platformLumpName, props, propLumpName,
+        spriteScale} from './level.js';
 import {patchIndexed} from './wad.js';
 
 const RADIUS = 22;          // the player's half-width, as the exporter has it
@@ -15,12 +17,17 @@ const OPENTICS = 165 / 35;  // how long it stands open before closing again
 
 // Column-major palette indices -> an RGBA texture. ROTT stores its art in
 // columns; the canvas wants rows.
+//
+// Row 0 of a DataTexture is v=0, the BOTTOM of the quad, and three.js does
+// not honour flipY here (see ../ROTT's idxTexture, which hit this first) --
+// so the image is written out bottom-up rather than top-down, or every wall,
+// flat, door and masked-wall texture comes out upside down.
 function texture(THREE, bytes, w, h, pal, colMajor = true, mask = null) {
   const rgba = new Uint8Array(w * h * 4);
   for (let x = 0; x < w; x++) {
     for (let y = 0; y < h; y++) {
       const i = colMajor ? x * h + y : y * w + x;
-      const p = bytes[i] * 3, o = (y * w + x) * 4;
+      const p = bytes[i] * 3, o = ((h - 1 - y) * w + x) * 4;
       rgba[o] = pal[p]; rgba[o + 1] = pal[p + 1]; rgba[o + 2] = pal[p + 2];
       rgba[o + 3] = mask ? mask[i] : 255;
     }
@@ -41,6 +48,9 @@ function material(THREE, opts) {
 }
 
 const UVBOX = [[0, 0], [1, 0], [1, 1], [0, 1]];
+// Top and bottom swapped: ../ROTT's uvq for a flipped masked-wall piece
+// (platform_pieces' bottom/above flip -- see level.js's PLATFORM_PIECES).
+const UVBOX_FLIP = [[0, 1], [1, 1], [1, 0], [0, 0]];
 function quad(g, pts, uv) {
   for (const i of [0, 1, 2, 0, 2, 3]) {
     g.pos.push(pts[i][0], pts[i][1], pts[i][2]);
@@ -58,10 +68,15 @@ function mesh(THREE, geo, mat) {
 export class Level {
   constructor(THREE, canvas, wad, planes) {
     this.THREE = THREE;
-    const [p0, p1] = planes;
+    const [p0, p1, p2] = planes;
     this.p0 = p0;
     this.storeys = storeysOf(p1);
-    this.solid = solidMap(p0);
+    // Static platforms first: their footprint has to reach solidMap and
+    // walls before either runs, or the plane-0 21 under each one reads as an
+    // ordinary wall and seals the platform off. See level.js's platforms.
+    const plats = platforms(p0, p1, p2);
+    const platset = new Set(plats.map((q) => q.y * DIM + q.x));
+    this.solid = solidMap(p0, platset);
     this.info = levelInfo(p0);
     const pal = wad.pal;
 
@@ -70,7 +85,7 @@ export class Level {
     this.renderer = new THREE.WebGLRenderer({canvas, antialias: true});
     this.renderer.setPixelRatio(devicePixelRatio);
 
-    for (const [tile, geo] of walls(p0, this.storeys)) {
+    for (const [tile, geo] of walls(p0, this.storeys, platset)) {
       const lump = wallLump(wad, tile);
       const mat = lump
         ? material(THREE, {map: texture(THREE, lump, 64, 64, pal)})
@@ -101,7 +116,7 @@ export class Level {
     const aboveMat = aboveLump
       ? material(THREE, {map: texture(THREE, aboveLump, 64, 64, pal)})
       : material(THREE, {color: 0x555a66});
-    for (const d of doors(p0, p1, planes[2])) {
+    for (const d of doors(p0, p1, p2)) {
       const tex = doorFace(wad, d.face);
       const mat = tex ? material(THREE, {map: texture(THREE, tex, 64, 64, pal)})
                       : material(THREE, {color: 0x6b6f7a});
@@ -165,6 +180,58 @@ export class Level {
                            transparent: true, alphaTest: 0.1})
         : material(THREE, {color: 0x6b6f7a});
       this.scene.add(mesh(THREE, geo, mat));
+    }
+
+    // Static platforms: one flat, double-sided panel per piece -- like a door
+    // leaf, the art is the only side of it anybody was ever meant to see.
+    // Each panel runs the width of its tile along platformAxis, through the
+    // tile's centre line.
+    const platByLump = new Map();
+    for (const w of platformWalls(p0, p1, p2, this.storeys)) {
+      const lump = platformLumpName(wad, w.off);
+      if (!lump) continue;
+      if (!platByLump.has(lump)) platByLump.set(lump, {pos: [], uv: []});
+      const g = platByLump.get(lump);
+      const cx = w.x * TILE + TILE / 2, cz = w.y * TILE + TILE / 2;
+      const y0 = w.storey * TILE, y1 = y0 + TILE;
+      const pts = w.axis === 'x'
+        ? [[cx - TILE / 2, y0, cz], [cx + TILE / 2, y0, cz],
+           [cx + TILE / 2, y1, cz], [cx - TILE / 2, y1, cz]]
+        : [[cx, y0, cz - TILE / 2], [cx, y0, cz + TILE / 2],
+           [cx, y1, cz + TILE / 2], [cx, y1, cz - TILE / 2]];
+      quad(g, pts, w.flip ? UVBOX_FLIP : UVBOX);
+    }
+    for (const [lump, geo] of platByLump) {
+      if (!geo.pos.length) continue;
+      const p = patchIndexed(wad, lump);
+      const mat = p
+        ? material(THREE, {map: texture(THREE, p.idx, p.w, p.h, pal, false, p.mask),
+                           transparent: true, alphaTest: 0.1})
+        : material(THREE, {color: 0x6b6f7a});
+      this.scene.add(mesh(THREE, geo, mat));
+    }
+
+    // Static props: every decoration and pickup SetupStatics() places, drawn
+    // as a camera-facing billboard the way ROTT itself draws every actor
+    // (see level.js's props/spriteScale). One mesh each -- a billboard turns
+    // to face the player every frame (see step), which a shared batched mesh
+    // spanning many tiles cannot do.
+    this.billboards = [];
+    for (const pr of props(p0, p1)) {
+      const lump = propLumpName(wad, pr.stat);
+      const q = lump ? patchIndexed(wad, lump) : null;
+      if (!q) continue;                 // a few names carry no art in shareware
+      const {ow, oh, oy} = spriteScale(q);
+      const g = {pos: [], uv: []};
+      quad(g, [[-ow / 2, -oh / 2, 0], [ow / 2, -oh / 2, 0],
+               [ow / 2, oh / 2, 0], [-ow / 2, oh / 2, 0]], UVBOX);
+      const mat = material(THREE, {map: texture(THREE, q.idx, q.w, q.h, pal, false, q.mask),
+                                   transparent: true, alphaTest: 0.1});
+      const m = mesh(THREE, g, mat);
+      m.position.set(pr.x * TILE + TILE / 2, oy + oh / 2, pr.y * TILE + TILE / 2);
+      this.scene.add(m);
+      this.billboards.push(m);
+      if (pr.blocking) this.solid[pr.y * DIM + pr.x] = 1;
     }
 
     const s = spawnOf(p1);
@@ -263,6 +330,10 @@ export class Level {
     if (!this.blocked(p.x, nz)) p.z = nz; else this.vz = 0;
     this.stepDoors(dt);
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    // ROTT turns every actor to face the player about the vertical axis
+    // only, never tilting to follow pitch -- so a billboard read edge-on
+    // from above still reads as flat art, not as a foreshortened sliver.
+    for (const b of this.billboards) b.rotation.y = this.yaw;
     this.renderer.render(this.scene, this.camera);
   }
 
